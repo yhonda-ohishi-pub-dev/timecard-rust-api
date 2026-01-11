@@ -36,7 +36,7 @@ impl IcNonRegService for ICNonRegServiceImpl {
         let rows = sqlx::query(
             "SELECT id, datetime, deleted, registered_id
              FROM ic_non_reged
-             WHERE datetime >= ?
+             WHERE datetime >= ? AND (deleted = 0 OR deleted IS NULL)
              ORDER BY datetime DESC",
         )
         .bind(&start_date)
