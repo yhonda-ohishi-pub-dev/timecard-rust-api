@@ -4,6 +4,7 @@ mod http_api;
 mod models;
 mod services;
 mod socketio_client;
+mod socketio_server;
 
 use std::sync::Arc;
 
@@ -20,7 +21,8 @@ use tonic::transport::Server;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 // Proto生成コードをインクルード
 pub mod proto {
@@ -44,13 +46,66 @@ use proto::timecard::{
     vapid_key_service_server::VapidKeyServiceServer,
 };
 
+/// 古いログファイルを削除（7日以上前）
+fn cleanup_old_logs(log_dir: &str, max_age_days: u64) {
+    let log_path = std::path::Path::new(log_dir);
+    if !log_path.exists() {
+        return;
+    }
+
+    let max_age = std::time::Duration::from_secs(max_age_days * 24 * 60 * 60);
+    let now = std::time::SystemTime::now();
+
+    if let Ok(entries) = std::fs::read_dir(log_path) {
+        for entry in entries.flatten() {
+            if let Ok(metadata) = entry.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    if let Ok(age) = now.duration_since(modified) {
+                        if age > max_age {
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 定期的にログをクリーンアップするバックグラウンドタスク
+fn spawn_log_cleanup_task() {
+    tokio::spawn(async {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60)); // 24時間ごと
+        loop {
+            interval.tick().await;
+            cleanup_old_logs("logs", 7);
+            tracing::debug!("Log cleanup completed");
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // ロギング初期化
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
+    // 起動時に古いログを削除 + 定期クリーンアップ開始
+    cleanup_old_logs("logs", 7);
+    spawn_log_cleanup_task();
+
+    // ロギング初期化（コンソール + ファイル）
+    let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "server.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    tracing_subscriber::registry()
+        .with(
+            fmt::layer()
+                .with_writer(std::io::stdout)
+                .with_ansi(true),
+        )
+        .with(
+            fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false),
+        )
+        .with(tracing_subscriber::filter::LevelFilter::from_level(Level::INFO))
+        .init();
 
     // 設定読み込み
     let config = Config::from_env()?;
@@ -135,19 +190,99 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_service(TestServiceServer::new(test_service))
         .serve(grpc_addr);
 
-    // 両サーバーを並行して起動
-    tokio::select! {
-        result = grpc_server => {
-            if let Err(e) = result {
-                tracing::error!("gRPC server error: {}", e);
+    // Socket.IO サーバー起動（設定されている場合）
+    let socketio_server = if let Some(port) = config.socketio_server_port {
+        info!("Starting Socket.IO server on port {}", port);
+        let (socketio_layer, _io) = socketio_server::setup_socketio(database.clone());
+
+        let socketio_cors = CorsLayer::new()
+            .allow_origin(Any)
+            .allow_headers(Any)
+            .allow_methods(Any);
+
+        let socketio_router = axum::Router::new()
+            .route("/health", axum::routing::get(|| async { "OK" }))
+            .layer(socketio_layer)
+            .layer(socketio_cors);
+
+        Some(start_socketio_server(
+            port,
+            socketio_router,
+            config.tls_cert_path.clone(),
+            config.tls_key_path.clone(),
+        ))
+    } else {
+        info!("SOCKETIO_SERVER_PORT not set, running without Socket.IO server");
+        None
+    };
+
+    // サーバーを並行して起動
+    if let Some(socketio_fut) = socketio_server {
+        tokio::select! {
+            result = grpc_server => {
+                if let Err(e) = result {
+                    tracing::error!("gRPC server error: {}", e);
+                }
+            }
+            result = axum::serve(http_listener, http_router) => {
+                if let Err(e) = result {
+                    tracing::error!("HTTP server error: {}", e);
+                }
+            }
+            result = socketio_fut => {
+                if let Err(e) = result {
+                    tracing::error!("Socket.IO server error: {}", e);
+                }
             }
         }
-        result = axum::serve(http_listener, http_router) => {
-            if let Err(e) = result {
-                tracing::error!("HTTP server error: {}", e);
+    } else {
+        // Socket.IOサーバーなしで起動
+        tokio::select! {
+            result = grpc_server => {
+                if let Err(e) = result {
+                    tracing::error!("gRPC server error: {}", e);
+                }
+            }
+            result = axum::serve(http_listener, http_router) => {
+                if let Err(e) = result {
+                    tracing::error!("HTTP server error: {}", e);
+                }
             }
         }
     }
 
     Ok(())
+}
+
+/// Start Socket.IO server with optional HTTPS
+async fn start_socketio_server(
+    port: u16,
+    router: axum::Router,
+    tls_cert_path: Option<String>,
+    tls_key_path: Option<String>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+
+    match (tls_cert_path, tls_key_path) {
+        (Some(cert_path), Some(key_path)) => {
+            // HTTPS mode
+            info!("Socket.IO server starting with HTTPS on port {}", port);
+            let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert_path, &key_path)
+                .await
+                .map_err(|e| format!("Failed to load TLS config: {}", e))?;
+
+            axum_server::bind_rustls(addr, tls_config)
+                .serve(router.into_make_service())
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        }
+        _ => {
+            // HTTP mode
+            info!("Socket.IO server starting with HTTP on port {}", port);
+            let listener = tokio::net::TcpListener::bind(addr).await?;
+            axum::serve(listener, router)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        }
+    }
 }

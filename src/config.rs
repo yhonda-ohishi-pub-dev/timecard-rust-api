@@ -7,6 +7,10 @@ pub struct Config {
     pub http_port: Option<u16>,
     pub log_level: String,
     pub socketio_url: Option<String>,
+    // Socket.IO server settings
+    pub socketio_server_port: Option<u16>,
+    pub tls_cert_path: Option<String>,
+    pub tls_key_path: Option<String>,
 }
 
 impl Config {
@@ -37,12 +41,23 @@ impl Config {
 
         let socketio_url = env::var("SOCKETIO_URL").ok();
 
+        // Socket.IO server settings
+        let socketio_server_port = env::var("SOCKETIO_SERVER_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok());
+
+        let tls_cert_path = env::var("TLS_CERT_PATH").ok();
+        let tls_key_path = env::var("TLS_KEY_PATH").ok();
+
         Ok(Config {
             database_url,
             grpc_port,
             http_port,
             log_level,
             socketio_url,
+            socketio_server_port,
+            tls_cert_path,
+            tls_key_path,
         })
     }
 }
