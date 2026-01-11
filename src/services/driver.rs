@@ -86,10 +86,17 @@ impl DriverService for DriverServiceImpl {
             name: String,
         }
 
-        let external_drivers: Vec<ExternalDriver> = response
+        #[derive(serde::Deserialize)]
+        struct ExternalApiResponse {
+            ret: Vec<ExternalDriver>,
+        }
+
+        let api_response: ExternalApiResponse = response
             .json()
             .await
             .map_err(|e| Status::internal(format!("Failed to parse external API response: {}", e)))?;
+
+        let external_drivers = api_response.ret;
 
         // トランザクションで既存データを削除して新しいデータを挿入
         let mut tx = self
