@@ -13,10 +13,12 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::db::Database;
+use crate::socketio_client::SocketIoClient;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: Database,
+    pub socketio: Option<Arc<SocketIoClient>>,
 }
 
 // Response types
@@ -79,8 +81,19 @@ pub struct RegisterDirectIcResponse {
     pub driver_name: Option<String>,
 }
 
-pub fn create_router(db: Database) -> Router {
-    let state = AppState { db };
+#[derive(Deserialize)]
+pub struct DeleteIcRequest {
+    pub ic_id: String,
+}
+
+#[derive(Serialize)]
+pub struct DeleteIcResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+pub fn create_router(db: Database, socketio: Option<Arc<SocketIoClient>>) -> Router {
+    let state = AppState { db, socketio };
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -94,6 +107,7 @@ pub fn create_router(db: Database) -> Router {
         .route("/api/ic_non_reg", get(get_ic_non_reg))
         .route("/api/ic_non_reg/register", post(register_ic))
         .route("/api/ic/register_direct", post(register_direct_ic))
+        .route("/api/ic/delete", post(delete_ic))
         .route("/api/ic_log", get(get_ic_log))
         .route("/health", get(health_check))
         .layer(cors)
@@ -364,4 +378,35 @@ async fn get_ic_log(
         .collect();
 
     Ok(Json(logs))
+}
+
+async fn delete_ic(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<DeleteIcRequest>,
+) -> Result<Json<DeleteIcResponse>, StatusCode> {
+    // Send delete_ic event via Socket.IO to Python client
+    if let Some(ref socketio) = state.socketio {
+        match socketio.emit_delete_ic(&req.ic_id).await {
+            Ok(_) => {
+                tracing::info!("Sent delete_ic event for IC: {}", req.ic_id);
+                Ok(Json(DeleteIcResponse {
+                    success: true,
+                    message: format!("IC削除イベントを送信しました: {}", req.ic_id),
+                }))
+            }
+            Err(e) => {
+                tracing::error!("Failed to send delete_ic event: {}", e);
+                Ok(Json(DeleteIcResponse {
+                    success: false,
+                    message: format!("Socket.IO送信エラー: {}", e),
+                }))
+            }
+        }
+    } else {
+        tracing::warn!("Socket.IO client not configured");
+        Ok(Json(DeleteIcResponse {
+            success: false,
+            message: "Socket.IOクライアントが設定されていません".to_string(),
+        }))
+    }
 }

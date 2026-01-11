@@ -3,6 +3,7 @@ mod db;
 mod http_api;
 mod models;
 mod services;
+mod socketio_client;
 
 use std::sync::Arc;
 
@@ -13,6 +14,7 @@ use services::{
     NotificationServiceImpl, PicDataServiceImpl, TestServiceImpl, TmpDataServiceImpl,
     VapidKeyServiceImpl,
 };
+use socketio_client::SocketIoClient;
 use tokio::sync::broadcast;
 use tonic::transport::Server;
 use tonic_reflection::server::Builder as ReflectionBuilder;
@@ -63,6 +65,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (broadcaster, _) = broadcast::channel(1024);
     let broadcaster = Arc::new(broadcaster);
 
+    // Socket.IO クライアント初期化（設定されている場合）
+    let socketio_client = if let Some(ref url) = config.socketio_url {
+        info!("Connecting to Socket.IO server: {}", url);
+        match SocketIoClient::new(url).await {
+            Ok(client) => {
+                info!("Socket.IO client connected successfully");
+                Some(Arc::new(client))
+            }
+            Err(e) => {
+                tracing::warn!("Failed to connect to Socket.IO server: {}. Continuing without Socket.IO.", e);
+                None
+            }
+        }
+    } else {
+        info!("SOCKETIO_URL not set, running without Socket.IO client");
+        None
+    };
+
     // gRPC サービス初期化
     let driver_service = DriverServiceImpl::new(database.clone());
     let ic_log_service = ICLogServiceImpl::new(database.clone());
@@ -95,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("HTTP API server listening on {}", http_addr);
 
     // HTTP API サーバー
-    let http_router = http_api::create_router(database.clone());
+    let http_router = http_api::create_router(database.clone(), socketio_client);
     let http_listener = tokio::net::TcpListener::bind(&http_addr).await?;
 
     // gRPC-Web対応サーバー

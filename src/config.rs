@@ -6,6 +6,7 @@ pub struct Config {
     pub grpc_port: u16,
     pub http_port: Option<u16>,
     pub log_level: String,
+    pub socketio_url: Option<String>,
 }
 
 impl Config {
@@ -34,11 +35,14 @@ impl Config {
 
         let log_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
 
+        let socketio_url = env::var("SOCKETIO_URL").ok();
+
         Ok(Config {
             database_url,
             grpc_port,
             http_port,
             log_level,
+            socketio_url,
         })
     }
 }
