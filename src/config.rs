@@ -11,6 +11,8 @@ pub struct Config {
     pub socketio_server_port: Option<u16>,
     pub tls_cert_path: Option<String>,
     pub tls_key_path: Option<String>,
+    // Cloudflare Worker broadcast URL
+    pub cf_broadcast_url: Option<String>,
 }
 
 impl Config {
@@ -49,6 +51,8 @@ impl Config {
         let tls_cert_path = env::var("TLS_CERT_PATH").ok();
         let tls_key_path = env::var("TLS_KEY_PATH").ok();
 
+        let cf_broadcast_url = env::var("CF_BROADCAST_URL").ok();
+
         Ok(Config {
             database_url,
             grpc_port,
@@ -58,6 +62,7 @@ impl Config {
             socketio_server_port,
             tls_cert_path,
             tls_key_path,
+            cf_broadcast_url,
         })
     }
 }

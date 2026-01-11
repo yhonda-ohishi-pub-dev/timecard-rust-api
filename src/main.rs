@@ -182,8 +182,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Socket.IO サーバー起動（設定されている場合）
     let socketio_server = if let Some(port) = config.socketio_server_port {
         info!("Starting Socket.IO server on port {}", port);
-        let (socketio_layer, _io) =
-            socketio_server::setup_socketio(database.clone(), client_state.clone());
+        let (socketio_layer, _io) = socketio_server::setup_socketio(
+            database.clone(),
+            client_state.clone(),
+            config.cf_broadcast_url.clone(),
+        );
 
         let socketio_cors = CorsLayer::new()
             .allow_origin(Any)

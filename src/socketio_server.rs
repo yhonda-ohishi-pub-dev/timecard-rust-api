@@ -10,6 +10,7 @@ use socketioxide::{
     SocketIo,
 };
 use sqlx::Row;
+use std::sync::Arc;
 use tracing::{error, info, warn};
 
 /// Shared state for Socket.IO handlers
@@ -17,6 +18,8 @@ use tracing::{error, info, warn};
 pub struct SocketState {
     pub db: Database,
     pub clients: ClientState,
+    pub cf_broadcast_url: Option<Arc<String>>,
+    pub http_client: reqwest::Client,
 }
 
 /// Message data structure from Python client
@@ -42,8 +45,18 @@ pub struct MessagePayload {
 }
 
 /// Setup Socket.IO server with message handling
-pub fn setup_socketio(db: Database, clients: ClientState) -> (socketioxide::layer::SocketIoLayer, SocketIo) {
-    let state = SocketState { db, clients };
+pub fn setup_socketio(
+    db: Database,
+    clients: ClientState,
+    cf_broadcast_url: Option<String>,
+) -> (socketioxide::layer::SocketIoLayer, SocketIo) {
+    let http_client = reqwest::Client::new();
+    let state = SocketState {
+        db,
+        clients,
+        cf_broadcast_url: cf_broadcast_url.map(|url| Arc::new(url)),
+        http_client,
+    };
     let (layer, io) = SocketIo::builder().with_state(state).build_layer();
 
     io.ns("/", on_connect);
@@ -83,7 +96,14 @@ async fn on_connect(socket: SocketRef, state: State<SocketState>) {
             }
 
             info!("Received message: {:?}", data);
-            handle_message(socket, data, state.db.clone()).await;
+            handle_message(
+                socket,
+                data,
+                state.db.clone(),
+                state.cf_broadcast_url.clone(),
+                state.http_client.clone(),
+            )
+            .await;
         },
     );
 
@@ -102,7 +122,13 @@ async fn on_connect(socket: SocketRef, state: State<SocketState>) {
 }
 
 /// Process message and broadcast hello event
-async fn handle_message(socket: SocketRef, mut data: Value, db: Database) {
+async fn handle_message(
+    socket: SocketRef,
+    mut data: Value,
+    db: Database,
+    cf_broadcast_url: Option<Arc<String>>,
+    http_client: reqwest::Client,
+) {
     let status = data
         .get("status")
         .and_then(|v| v.as_str())
@@ -153,6 +179,14 @@ async fn handle_message(socket: SocketRef, mut data: Value, db: Database) {
     // Broadcast hello event to all clients (including sender)
     let json_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
     broadcast_hello(&socket, &json_str).await;
+
+    // Notify Cloudflare Worker asynchronously (fire-and-forget)
+    if let Some(url) = cf_broadcast_url {
+        let json_str_clone = json_str.clone();
+        tokio::spawn(async move {
+            notify_cf_worker(&http_client, &url, &json_str_clone).await;
+        });
+    }
 }
 
 /// Get driver name from database
@@ -181,6 +215,36 @@ async fn broadcast_hello(socket: &SocketRef, data: &str) {
     }
 
     info!("Broadcasted hello event");
+}
+
+/// Notify Cloudflare Worker to broadcast message to WebSocket clients
+async fn notify_cf_worker(client: &reqwest::Client, url: &str, data: &str) {
+    // Wrap data in hello event format for frontend
+    let payload = json!({
+        "type": "hello",
+        "data": serde_json::from_str::<Value>(data).unwrap_or(Value::Null),
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    });
+
+    match client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .body(payload.to_string())
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                info!("CF Worker notified successfully");
+            } else {
+                warn!("CF Worker returned status: {}", resp.status());
+            }
+        }
+        Err(e) => {
+            warn!("Failed to notify CF Worker: {}", e);
+        }
+    }
 }
 
 /// Get SocketIo instance for external use (e.g., emit from HTTP handlers)
