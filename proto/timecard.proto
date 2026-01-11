@@ -47,6 +47,9 @@ service ICLogService {
   // ICログ + ドライバー名で取得
   rpc GetWithDriver(TimeRangeRequest) returns (ICLogWithDriverList);
 
+  // 最新N件のICログ + ドライバー名を取得
+  rpc GetLatestWithDriver(PaginationRequest) returns (ICLogWithDriverList);
+
   // 一時データなしのICログ取得
   rpc GetWithoutTmp(PaginationRequest) returns (ICLogList);
 }

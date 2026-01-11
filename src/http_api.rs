@@ -70,6 +70,15 @@ pub struct RegisterIcRequest {
     pub driver_id: i32,
 }
 
+#[derive(Serialize)]
+pub struct RegisterDirectIcResponse {
+    pub success: bool,
+    pub message: String,
+    pub ic_id: Option<String>,
+    pub driver_id: Option<i32>,
+    pub driver_name: Option<String>,
+}
+
 pub fn create_router(db: Database) -> Router {
     let state = AppState { db };
 
@@ -84,6 +93,7 @@ pub fn create_router(db: Database) -> Router {
         .route("/api/pic_tmp", get(get_pic_tmp))
         .route("/api/ic_non_reg", get(get_ic_non_reg))
         .route("/api/ic_non_reg/register", post(register_ic))
+        .route("/api/ic/register_direct", post(register_direct_ic))
         .route("/api/ic_log", get(get_ic_log))
         .route("/health", get(health_check))
         .layer(cors)
@@ -150,10 +160,10 @@ async fn get_pic_tmp(
         SELECT
             t.date,
             t.machine_ip,
-            COALESCE(i.iid, d.id) as driver_id,
+            COALESCE(ii.emp_id, f.id) as driver_id,
             d.name as driver_name,
             CASE
-                WHEN i.iid IS NOT NULL THEN 'tmp inserted by ic'
+                WHEN ii.emp_id IS NOT NULL THEN 'tmp inserted by ic'
                 WHEN f.id IS NOT NULL THEN 'tmp inserted by fing'
                 ELSE 'tmp inserted'
             END as detail,
@@ -162,9 +172,20 @@ async fn get_pic_tmp(
         FROM tmp_data t
         LEFT JOIN pic_data p1 ON t.machine_ip = p1.machine_ip AND t.date = p1.date AND p1.pic_type = 1
         LEFT JOIN pic_data p2 ON t.machine_ip = p2.machine_ip AND t.date = p2.date AND p2.pic_type = 2
-        LEFT JOIN ic_log i ON t.machine_ip = i.machine_ip AND t.date = i.datetime
+        LEFT JOIN ic_log il ON t.machine_ip = il.machine_ip AND t.date = il.datetime
+        LEFT JOIN (
+            SELECT i1.ic_id, i1.emp_id
+            FROM ic_id i1
+            INNER JOIN (
+                SELECT ic_id, MAX(date) as max_date
+                FROM ic_id
+                WHERE deleted = 0 AND ic_id != ''
+                GROUP BY ic_id
+            ) i2 ON i1.ic_id = i2.ic_id AND i1.date = i2.max_date
+            WHERE i1.deleted = 0
+        ) ii ON il.id = ii.ic_id
         LEFT JOIN finger_log f ON t.machine_ip = f.machine_ip AND t.date = f.datetime
-        LEFT JOIN drivers d ON COALESCE(i.iid, f.id) = d.id
+        LEFT JOIN drivers d ON COALESCE(ii.emp_id, f.id) = d.id
         WHERE t.date >= ?
         ORDER BY t.date DESC
         LIMIT ?
@@ -249,6 +270,66 @@ async fn register_ic(
         "ic_id": req.ic_id,
         "driver_id": req.driver_id
     })))
+}
+
+async fn register_direct_ic(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RegisterIcRequest>,
+) -> Result<Json<RegisterDirectIcResponse>, StatusCode> {
+    // 1. Validate driver exists
+    let driver_row = sqlx::query("SELECT id, name FROM drivers WHERE id = ?")
+        .bind(req.driver_id)
+        .fetch_optional(state.db.pool())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let driver = match driver_row {
+        Some(row) => row,
+        None => {
+            return Ok(Json(RegisterDirectIcResponse {
+                success: false,
+                message: "ドライバーIDが見つかりません".to_string(),
+                ic_id: None,
+                driver_id: None,
+                driver_name: None,
+            }));
+        }
+    };
+
+    let driver_name: String = driver.get("name");
+
+    // 2. Check if IC is already registered
+    let existing = sqlx::query("SELECT ic_id FROM ic_id WHERE ic_id = ? AND deleted = 0")
+        .bind(&req.ic_id)
+        .fetch_optional(state.db.pool())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if existing.is_some() {
+        return Ok(Json(RegisterDirectIcResponse {
+            success: false,
+            message: "このICカードは既に登録されています".to_string(),
+            ic_id: Some(req.ic_id),
+            driver_id: None,
+            driver_name: None,
+        }));
+    }
+
+    // 3. Insert into ic_id
+    sqlx::query("INSERT INTO ic_id (ic_id, emp_id, deleted, date) VALUES (?, ?, 0, NOW())")
+        .bind(&req.ic_id)
+        .bind(req.driver_id)
+        .execute(state.db.pool())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(RegisterDirectIcResponse {
+        success: true,
+        message: "ICカードを登録しました".to_string(),
+        ic_id: Some(req.ic_id),
+        driver_id: Some(req.driver_id),
+        driver_name: Some(driver_name),
+    }))
 }
 
 async fn get_ic_log(

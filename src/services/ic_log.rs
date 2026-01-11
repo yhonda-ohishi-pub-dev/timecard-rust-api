@@ -109,14 +109,78 @@ impl IcLogService for ICLogServiceImpl {
             .start_date
             .unwrap_or_else(Self::get_default_start_date);
 
+        // 正しいJOIN: ic_log.id -> ic_id.ic_id -> ic_id.emp_id -> drivers.id
+        // 同一ICカードに複数レコードがある場合は最新のみを使用
         let rows = sqlx::query(
             "SELECT ic.id, ic.type, ic.detail, ic.date, ic.iid, ic.machine_ip, d.name
              FROM ic_log ic
-             LEFT JOIN drivers d ON ic.iid = d.id
+             LEFT JOIN (
+                 SELECT i1.ic_id, i1.emp_id
+                 FROM ic_id i1
+                 INNER JOIN (
+                     SELECT ic_id, MAX(date) as max_date
+                     FROM ic_id
+                     WHERE deleted = 0 AND ic_id != ''
+                     GROUP BY ic_id
+                 ) i2 ON i1.ic_id = i2.ic_id AND i1.date = i2.max_date
+                 WHERE i1.deleted = 0
+             ) i ON ic.id = i.ic_id
+             LEFT JOIN drivers d ON i.emp_id = d.id
              WHERE ic.date >= ?
              ORDER BY ic.date DESC",
         )
         .bind(&start_date)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+
+        let logs: Vec<IcLogWithDriver> = rows
+            .iter()
+            .map(|row| {
+                let date: chrono::NaiveDateTime = row.get("date");
+                IcLogWithDriver {
+                    id: row.get("id"),
+                    r#type: row.get("type"),
+                    detail: row.get("detail"),
+                    date: date.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    iid: row.get("iid"),
+                    machine_ip: row.get("machine_ip"),
+                    driver_name: row.get("name"),
+                }
+            })
+            .collect();
+
+        Ok(Response::new(IcLogWithDriverList { logs }))
+    }
+
+    async fn get_latest_with_driver(
+        &self,
+        request: Request<PaginationRequest>,
+    ) -> Result<Response<IcLogWithDriverList>, Status> {
+        let req = request.into_inner();
+        let limit = req.limit.unwrap_or(100);
+
+        // 最新N件をドライバー名付きで取得
+        // 同一ICカードに複数レコードがある場合は最新のみを使用
+        let rows = sqlx::query(
+            "SELECT ic.id, ic.type, ic.detail, ic.date, ic.iid, ic.machine_ip, d.name
+             FROM ic_log ic
+             LEFT JOIN (
+                 SELECT i1.ic_id, i1.emp_id
+                 FROM ic_id i1
+                 INNER JOIN (
+                     SELECT ic_id, MAX(date) as max_date
+                     FROM ic_id
+                     WHERE deleted = 0 AND ic_id != ''
+                     GROUP BY ic_id
+                 ) i2 ON i1.ic_id = i2.ic_id AND i1.date = i2.max_date
+                 WHERE i1.deleted = 0
+             ) i ON ic.id = i.ic_id
+             LEFT JOIN drivers d ON i.emp_id = d.id
+             ORDER BY ic.date DESC
+             LIMIT ?",
+        )
+        .bind(limit)
         .fetch_all(self.db.pool())
         .await
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
