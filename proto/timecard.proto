@@ -195,6 +195,9 @@ service ICNonRegService {
 
   // 未登録ICカードを更新 (ドライバー割り当て)
   rpc Update(UpdateICNonRegRequest) returns (google.protobuf.Empty);
+
+  // 予約をキャンセル (registered_idをNULLに戻す)
+  rpc CancelReservation(CancelICNonRegRequest) returns (google.protobuf.Empty);
 }
 
 message ICNonReg {
@@ -211,6 +214,10 @@ message ICNonRegList {
 message UpdateICNonRegRequest {
   string ic_id = 1;
   int32 driver_id = 2;
+}
+
+message CancelICNonRegRequest {
+  string ic_id = 1;
 }
 
 // =============================================================================

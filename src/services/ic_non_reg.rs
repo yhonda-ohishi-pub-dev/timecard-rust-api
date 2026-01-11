@@ -1,7 +1,7 @@
 use crate::db::Database;
 use crate::proto::timecard::{
-    ic_non_reg_service_server::IcNonRegService, IcNonReg, IcNonRegList, TimeRangeRequest,
-    UpdateIcNonRegRequest,
+    ic_non_reg_service_server::IcNonRegService, CancelIcNonRegRequest, IcNonReg, IcNonRegList,
+    TimeRangeRequest, UpdateIcNonRegRequest,
 };
 use chrono::{Duration, Local};
 use sqlx::Row;
@@ -86,6 +86,26 @@ impl IcNonRegService for ICNonRegServiceImpl {
         )
         .bind(&req.ic_id)
         .bind(req.driver_id)
+        .execute(self.db.pool())
+        .await
+        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+
+        Ok(Response::new(()))
+    }
+
+    async fn cancel_reservation(
+        &self,
+        request: Request<CancelIcNonRegRequest>,
+    ) -> Result<Response<()>, Status> {
+        let req = request.into_inner();
+
+        // registered_idをNULLに戻す
+        sqlx::query(
+            "UPDATE ic_non_reged
+             SET registered_id = NULL
+             WHERE id = ?",
+        )
+        .bind(&req.ic_id)
         .execute(self.db.pool())
         .await
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
