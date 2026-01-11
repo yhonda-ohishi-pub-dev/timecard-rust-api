@@ -1,15 +1,16 @@
 # Build stage
-FROM rust:1.88-slim-bookworm AS builder
+FROM rust:1.88-alpine AS builder
 
 WORKDIR /app
 
-# Install protobuf compiler
-RUN apt-get update && apt-get install -y \
-    protobuf-compiler \
-    libprotobuf-dev \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Install build dependencies
+RUN apk add --no-cache \
+    musl-dev \
+    protobuf-dev \
+    protoc \
+    pkgconfig \
+    openssl-dev \
+    openssl-libs-static
 
 # Copy manifests
 COPY Cargo.toml Cargo.lock* ./
@@ -30,15 +31,16 @@ RUN touch src/main.rs
 RUN cargo build --release
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM alpine:3.21
 
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     ca-certificates \
     libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+    libgcc \
+    tzdata
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/timecard-backend /app/timecard-backend
