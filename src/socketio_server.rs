@@ -1,6 +1,7 @@
 // Socket.IO Server implementation
 // Replaces Node.js Socket.IO server on port 3050
 
+use crate::client_state::ClientState;
 use crate::db::Database;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -15,6 +16,7 @@ use tracing::{error, info, warn};
 #[derive(Clone)]
 pub struct SocketState {
     pub db: Database,
+    pub clients: ClientState,
 }
 
 /// Message data structure from Python client
@@ -40,8 +42,8 @@ pub struct MessagePayload {
 }
 
 /// Setup Socket.IO server with message handling
-pub fn setup_socketio(db: Database) -> (socketioxide::layer::SocketIoLayer, SocketIo) {
-    let state = SocketState { db };
+pub fn setup_socketio(db: Database, clients: ClientState) -> (socketioxide::layer::SocketIoLayer, SocketIo) {
+    let state = SocketState { db, clients };
     let (layer, io) = SocketIo::builder().with_state(state).build_layer();
 
     io.ns("/", on_connect);
@@ -63,14 +65,40 @@ async fn on_connect(socket: SocketRef) {
     socket.on(
         "message",
         |socket: SocketRef, Data::<Value>(data), state: State<SocketState>| async move {
+            let socket_id = socket.id.to_string();
+
+            // Update last activity for this client
+            state.clients.update_activity(&socket_id);
+
+            // Handle start_connect event - register client
+            if let Some(status) = data.get("status").and_then(|v| v.as_str()) {
+                if status == "start_connect" {
+                    let ip = data
+                        .get("ip")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    state.clients.add_client(socket_id.clone(), ip.clone());
+                    info!("Python client registered: {} from {}", socket_id, ip);
+                }
+            }
+
             info!("Received message: {:?}", data);
             handle_message(socket, data, state.db.clone()).await;
         },
     );
 
     // Handle disconnect
-    socket.on_disconnect(|socket: SocketRef| async move {
-        info!("Client disconnected: {}", socket.id);
+    socket.on_disconnect(|socket: SocketRef, state: State<SocketState>| async move {
+        let socket_id = socket.id.to_string();
+        if let Some(client) = state.clients.remove_client(&socket_id) {
+            info!(
+                "Python client disconnected: {} ({})",
+                socket_id, client.ip_address
+            );
+        } else {
+            info!("Client disconnected: {}", socket_id);
+        }
     });
 }
 

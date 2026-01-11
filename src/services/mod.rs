@@ -1,3 +1,4 @@
+mod client;
 mod driver;
 mod finger_log;
 mod ic_log;
@@ -8,6 +9,7 @@ mod test;
 mod tmp_data;
 mod vapid_key;
 
+pub use client::ClientServiceImpl;
 pub use driver::DriverServiceImpl;
 pub use finger_log::FingerLogServiceImpl;
 pub use ic_log::ICLogServiceImpl;

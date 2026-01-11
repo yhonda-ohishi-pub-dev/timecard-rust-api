@@ -293,3 +293,24 @@ message TestData {
 message TestDataList {
   repeated TestData data = 1;
 }
+
+// =============================================================================
+// Client Service - 接続クライアント管理
+// =============================================================================
+
+service ClientService {
+  // 接続中のクライアント一覧取得
+  rpc GetAll(google.protobuf.Empty) returns (ClientList);
+}
+
+message ConnectedClient {
+  string socket_id = 1;
+  string ip_address = 2;
+  string connected_at = 3;   // ISO 8601 形式
+  string last_activity = 4;  // ISO 8601 形式
+}
+
+message ClientList {
+  repeated ConnectedClient clients = 1;
+  int32 total = 2;
+}

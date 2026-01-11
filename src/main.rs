@@ -1,3 +1,4 @@
+mod client_state;
 mod config;
 mod db;
 mod http_api;
@@ -8,12 +9,13 @@ mod socketio_server;
 
 use std::sync::Arc;
 
+use client_state::ClientState;
 use config::Config;
 use db::Database;
 use services::{
-    DriverServiceImpl, FingerLogServiceImpl, ICLogServiceImpl, ICNonRegServiceImpl,
-    NotificationServiceImpl, PicDataServiceImpl, TestServiceImpl, TmpDataServiceImpl,
-    VapidKeyServiceImpl,
+    ClientServiceImpl, DriverServiceImpl, FingerLogServiceImpl, ICLogServiceImpl,
+    ICNonRegServiceImpl, NotificationServiceImpl, PicDataServiceImpl, TestServiceImpl,
+    TmpDataServiceImpl, VapidKeyServiceImpl,
 };
 use socketio_client::SocketIoClient;
 use tokio::sync::broadcast;
@@ -35,15 +37,12 @@ pub mod proto {
 }
 
 use proto::timecard::{
-    driver_service_server::DriverServiceServer,
-    finger_log_service_server::FingerLogServiceServer,
-    ic_log_service_server::IcLogServiceServer,
+    client_service_server::ClientServiceServer, driver_service_server::DriverServiceServer,
+    finger_log_service_server::FingerLogServiceServer, ic_log_service_server::IcLogServiceServer,
     ic_non_reg_service_server::IcNonRegServiceServer,
     notification_service_server::NotificationServiceServer,
-    pic_data_service_server::PicDataServiceServer,
-    test_service_server::TestServiceServer,
-    tmp_data_service_server::TmpDataServiceServer,
-    vapid_key_service_server::VapidKeyServiceServer,
+    pic_data_service_server::PicDataServiceServer, test_service_server::TestServiceServer,
+    tmp_data_service_server::TmpDataServiceServer, vapid_key_service_server::VapidKeyServiceServer,
 };
 
 /// 古いログファイルを削除（7日以上前）
@@ -116,6 +115,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = Database::connect(&config.database_url).await?;
     info!("Database connected successfully");
 
+    // クライアント接続状態管理
+    let client_state = ClientState::new();
+    info!("Client state initialized");
+
     // イベントブロードキャスト用チャンネル
     let (broadcaster, _) = broadcast::channel(1024);
     let broadcaster = Arc::new(broadcaster);
@@ -139,6 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // gRPC サービス初期化
+    let client_service = ClientServiceImpl::new(client_state.clone());
     let driver_service = DriverServiceImpl::new(database.clone());
     let ic_log_service = ICLogServiceImpl::new(database.clone());
     let pic_data_service = PicDataServiceImpl::new(database.clone());
@@ -179,6 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(cors)
         .layer(tonic_web::GrpcWebLayer::new()) // gRPC-Webサポート
         .add_service(reflection_service)
+        .add_service(ClientServiceServer::new(client_service))
         .add_service(DriverServiceServer::new(driver_service))
         .add_service(IcLogServiceServer::new(ic_log_service))
         .add_service(PicDataServiceServer::new(pic_data_service))
@@ -193,7 +198,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Socket.IO サーバー起動（設定されている場合）
     let socketio_server = if let Some(port) = config.socketio_server_port {
         info!("Starting Socket.IO server on port {}", port);
-        let (socketio_layer, _io) = socketio_server::setup_socketio(database.clone());
+        let (socketio_layer, _io) =
+            socketio_server::setup_socketio(database.clone(), client_state.clone());
 
         let socketio_cors = CorsLayer::new()
             .allow_origin(Any)
