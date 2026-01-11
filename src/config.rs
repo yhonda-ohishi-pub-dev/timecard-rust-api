@@ -4,6 +4,7 @@ use std::env;
 pub struct Config {
     pub database_url: String,
     pub grpc_port: u16,
+    pub http_port: Option<u16>,
     pub log_level: String,
 }
 
@@ -27,11 +28,16 @@ impl Config {
             .parse()
             .unwrap_or(50051);
 
+        let http_port = env::var("HTTP_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok());
+
         let log_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
 
         Ok(Config {
             database_url,
             grpc_port,
+            http_port,
             log_level,
         })
     }

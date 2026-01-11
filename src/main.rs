@@ -1,5 +1,6 @@
 mod config;
 mod db;
+mod http_api;
 mod models;
 mod services;
 
@@ -86,12 +87,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expose_headers(Any);
 
     // サーバーアドレス
-    let addr = format!("0.0.0.0:{}", config.grpc_port).parse()?;
+    let grpc_addr = format!("0.0.0.0:{}", config.grpc_port).parse()?;
+    let http_port = config.http_port.unwrap_or(8080);
+    let http_addr = format!("0.0.0.0:{}", http_port);
 
-    info!("gRPC server listening on {}", addr);
+    info!("gRPC server listening on {}", grpc_addr);
+    info!("HTTP API server listening on {}", http_addr);
 
-    // gRPC-Web対応サーバー起動
-    Server::builder()
+    // HTTP API サーバー
+    let http_router = http_api::create_router(database.clone());
+    let http_listener = tokio::net::TcpListener::bind(&http_addr).await?;
+
+    // gRPC-Web対応サーバー
+    let grpc_server = Server::builder()
         .accept_http1(true) // gRPC-Web用にHTTP/1.1を許可
         .layer(cors)
         .layer(tonic_web::GrpcWebLayer::new()) // gRPC-Webサポート
@@ -105,8 +113,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_service(VapidKeyServiceServer::new(vapid_key_service))
         .add_service(NotificationServiceServer::new(notification_service))
         .add_service(TestServiceServer::new(test_service))
-        .serve(addr)
-        .await?;
+        .serve(grpc_addr);
+
+    // 両サーバーを並行して起動
+    tokio::select! {
+        result = grpc_server => {
+            if let Err(e) = result {
+                tracing::error!("gRPC server error: {}", e);
+            }
+        }
+        result = axum::serve(http_listener, http_router) => {
+            if let Err(e) = result {
+                tracing::error!("HTTP server error: {}", e);
+            }
+        }
+    }
 
     Ok(())
 }

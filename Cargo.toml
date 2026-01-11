@@ -40,13 +40,10 @@ reqwest = { version = "0.12", features = ["json"] }
 # UUID generation
 uuid = { version = "1", features = ["v4"] }
 
-# HTTP server (for health checks)
-hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["full"] }
+# HTTP server
+axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
-http = "1"
-http-body-util = "0.1"
 
 [build-dependencies]
 tonic-build = "0.12"
