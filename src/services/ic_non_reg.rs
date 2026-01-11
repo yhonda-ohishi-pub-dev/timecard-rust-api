@@ -130,24 +130,7 @@ impl IcNonRegService for ICNonRegServiceImpl {
             .map(|row| row.get("name"))
             .unwrap_or_else(|| format!("ID:{}", req.driver_id));
 
-        // 2. ICカードが既にic_idテーブルに登録されているか確認
-        let existing = sqlx::query("SELECT ic_id FROM ic_id WHERE ic_id = ? AND deleted = 0")
-            .bind(&req.ic_id)
-            .fetch_optional(self.db.pool())
-            .await
-            .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
-
-        if existing.is_some() {
-            return Ok(Response::new(RegisterDirectResponse {
-                success: false,
-                message: "このICカードは既に登録されています".to_string(),
-                ic_id: Some(req.ic_id),
-                driver_id: None,
-                driver_name: None,
-            }));
-        }
-
-        // 3. ic_non_regedにregistered_idを設定
+        // 2. ic_non_regedにregistered_idを設定
         // Pythonクライアントが次回ICタッチ時に登録を完了する
         sqlx::query(
             r#"INSERT INTO ic_non_reged (id, registered_id, datetime, deleted)
