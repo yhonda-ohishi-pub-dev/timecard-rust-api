@@ -298,7 +298,7 @@ async fn register_direct_ic(
 
     let driver_name: String = driver.get("name");
 
-    // 2. Check if IC is already registered
+    // 2. Check if IC is already registered in ic_id table
     let existing = sqlx::query("SELECT ic_id FROM ic_id WHERE ic_id = ? AND deleted = 0")
         .bind(&req.ic_id)
         .fetch_optional(state.db.pool())
@@ -315,17 +315,25 @@ async fn register_direct_ic(
         }));
     }
 
-    // 3. Insert into ic_id
-    sqlx::query("INSERT INTO ic_id (ic_id, emp_id, deleted, date) VALUES (?, ?, 0, NOW())")
-        .bind(&req.ic_id)
-        .bind(req.driver_id)
-        .execute(state.db.pool())
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // 3. Insert/Update ic_non_reged with registered_id
+    // Python client will complete registration on next IC touch
+    sqlx::query(
+        r#"INSERT INTO ic_non_reged (id, registered_id, datetime, deleted)
+           VALUES (?, ?, NOW() + INTERVAL 9 HOUR, 0)
+           ON DUPLICATE KEY UPDATE
+           registered_id = VALUES(registered_id),
+           datetime = NOW() + INTERVAL 9 HOUR,
+           deleted = 0"#
+    )
+    .bind(&req.ic_id)
+    .bind(req.driver_id)
+    .execute(state.db.pool())
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(RegisterDirectIcResponse {
         success: true,
-        message: "ICカードを登録しました".to_string(),
+        message: "ICカード登録予約完了。次回ICタッチ時に登録されます".to_string(),
         ic_id: Some(req.ic_id),
         driver_id: Some(req.driver_id),
         driver_name: Some(driver_name),
