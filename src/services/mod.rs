@@ -8,6 +8,7 @@ mod pic_data;
 mod test;
 mod tmp_data;
 mod vapid_key;
+mod version;
 
 pub use client::ClientServiceImpl;
 pub use driver::DriverServiceImpl;
@@ -19,3 +20,4 @@ pub use pic_data::PicDataServiceImpl;
 pub use test::TestServiceImpl;
 pub use tmp_data::TmpDataServiceImpl;
 pub use vapid_key::VapidKeyServiceImpl;
+pub use version::VersionServiceImpl;

@@ -14,7 +14,7 @@ use db::Database;
 use services::{
     ClientServiceImpl, DriverServiceImpl, FingerLogServiceImpl, ICLogServiceImpl,
     ICNonRegServiceImpl, NotificationServiceImpl, PicDataServiceImpl, TestServiceImpl,
-    TmpDataServiceImpl, VapidKeyServiceImpl,
+    TmpDataServiceImpl, VapidKeyServiceImpl, VersionServiceImpl,
 };
 use tokio::sync::broadcast;
 use tonic::transport::Server;
@@ -41,6 +41,7 @@ use proto::timecard::{
     notification_service_server::NotificationServiceServer,
     pic_data_service_server::PicDataServiceServer, test_service_server::TestServiceServer,
     tmp_data_service_server::TmpDataServiceServer, vapid_key_service_server::VapidKeyServiceServer,
+    version_service_server::VersionServiceServer,
 };
 
 /// 古いログファイルを削除（7日以上前）
@@ -133,6 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let vapid_key_service = VapidKeyServiceImpl::new(database.clone());
     let notification_service = NotificationServiceImpl::new(database.clone(), broadcaster.clone());
     let test_service = TestServiceImpl::new(database.clone());
+    let version_service = VersionServiceImpl::new();
 
     // Reflection サービス
     let reflection_service = ReflectionBuilder::configure()
@@ -174,6 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_service(VapidKeyServiceServer::new(vapid_key_service))
         .add_service(NotificationServiceServer::new(notification_service))
         .add_service(TestServiceServer::new(test_service))
+        .add_service(VersionServiceServer::new(version_service))
         .serve(grpc_addr);
 
     // Socket.IO サーバー起動（設定されている場合）

@@ -330,3 +330,19 @@ message ClientList {
   repeated ConnectedClient clients = 1;
   int32 total = 2;
 }
+
+// =============================================================================
+// Version Service - ビルド情報
+// =============================================================================
+
+service VersionService {
+  // ビルドバージョン情報取得
+  rpc GetVersion(google.protobuf.Empty) returns (VersionInfo);
+}
+
+message VersionInfo {
+  string git_commit = 1;      // Git commit hash (短縮形)
+  string git_commit_full = 2; // Git commit hash (完全形)
+  string build_date = 3;      // ビルド日時 (ISO 8601)
+  string rust_version = 4;    // Rustコンパイラバージョン
+}

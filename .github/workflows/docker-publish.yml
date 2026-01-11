@@ -30,6 +30,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get build date
+        id: date
+        run: echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
       - name: Build and push amd64 image
         id: build-amd64
         uses: docker/build-push-action@v6
@@ -41,6 +45,10 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:amd64
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:amd64-${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            GIT_COMMIT_SHORT=${{ github.sha }}
+            BUILD_DATE=${{ steps.date.outputs.BUILD_DATE }}
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,scope=amd64,mode=max
 
@@ -64,6 +72,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get build date
+        id: date
+        run: echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
       - name: Build and push arm64 image
         id: build-arm64
         uses: docker/build-push-action@v6
@@ -75,6 +87,10 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:arm64
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:arm64-${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            GIT_COMMIT_SHORT=${{ github.sha }}
+            BUILD_DATE=${{ steps.date.outputs.BUILD_DATE }}
           cache-from: type=gha,scope=arm64
           cache-to: type=gha,scope=arm64,mode=max
 
