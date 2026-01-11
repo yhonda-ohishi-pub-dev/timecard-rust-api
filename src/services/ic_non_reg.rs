@@ -119,27 +119,16 @@ impl IcNonRegService for ICNonRegServiceImpl {
     ) -> Result<Response<RegisterDirectResponse>, Status> {
         let req = request.into_inner();
 
-        // 1. ドライバーが存在するか確認
+        // 1. ドライバー名を取得（存在しない場合は空文字）
         let driver_row = sqlx::query("SELECT id, name FROM drivers WHERE id = ?")
             .bind(req.driver_id)
             .fetch_optional(self.db.pool())
             .await
             .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
 
-        let driver = match driver_row {
-            Some(row) => row,
-            None => {
-                return Ok(Response::new(RegisterDirectResponse {
-                    success: false,
-                    message: "ドライバーIDが見つかりません".to_string(),
-                    ic_id: None,
-                    driver_id: None,
-                    driver_name: None,
-                }));
-            }
-        };
-
-        let driver_name: String = driver.get("name");
+        let driver_name: String = driver_row
+            .map(|row| row.get("name"))
+            .unwrap_or_else(|| format!("ID:{}", req.driver_id));
 
         // 2. ICカードが既にic_idテーブルに登録されているか確認
         let existing = sqlx::query("SELECT ic_id FROM ic_id WHERE ic_id = ? AND deleted = 0")

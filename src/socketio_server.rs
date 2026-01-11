@@ -52,9 +52,13 @@ pub fn setup_socketio(db: Database, clients: ClientState) -> (socketioxide::laye
 }
 
 /// Handle new socket connection
-async fn on_connect(socket: SocketRef) {
+async fn on_connect(socket: SocketRef, state: State<SocketState>) {
     let socket_id = socket.id.to_string();
     info!("Client connected: {}", socket_id);
+
+    // Register client immediately on connect (IP will be updated on start_connect)
+    state.clients.add_client(socket_id.clone(), "unknown".to_string());
+    info!("Client registered on connect: {}", socket_id);
 
     // Send initial hello message on connect
     if let Err(e) = socket.emit("hello", "from server") {
@@ -70,7 +74,7 @@ async fn on_connect(socket: SocketRef) {
             // Update last activity for this client
             state.clients.update_activity(&socket_id);
 
-            // Handle start_connect event - register client
+            // Handle start_connect event - update client IP
             if let Some(status) = data.get("status").and_then(|v| v.as_str()) {
                 if status == "start_connect" {
                     let ip = data
@@ -78,8 +82,9 @@ async fn on_connect(socket: SocketRef) {
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown")
                         .to_string();
-                    state.clients.add_client(socket_id.clone(), ip.clone());
-                    info!("Python client registered: {} from {}", socket_id, ip);
+                    // Update existing client with real IP
+                    state.clients.update_ip(&socket_id, ip.clone());
+                    info!("Python client IP updated: {} from {}", socket_id, ip);
                 }
             }
 

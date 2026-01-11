@@ -55,6 +55,14 @@ impl ClientState {
         }
     }
 
+    /// Update the IP address for a client
+    pub fn update_ip(&self, socket_id: &str, ip_address: String) {
+        if let Some(mut client) = self.clients.get_mut(socket_id) {
+            client.ip_address = ip_address;
+            client.last_activity = Utc::now();
+        }
+    }
+
     /// Get all connected clients
     pub fn get_all_clients(&self) -> Vec<ClientInfo> {
         self.clients
