@@ -1,7 +1,7 @@
 use crate::db::Database;
 use crate::proto::timecard::{
     ic_non_reg_service_server::IcNonRegService, CancelIcNonRegRequest, IcNonReg, IcNonRegList,
-    TimeRangeRequest, UpdateIcNonRegRequest,
+    RegisterDirectRequest, RegisterDirectResponse, TimeRangeRequest, UpdateIcNonRegRequest,
 };
 use chrono::{Duration, Local};
 use sqlx::Row;
@@ -111,5 +111,75 @@ impl IcNonRegService for ICNonRegServiceImpl {
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
 
         Ok(Response::new(()))
+    }
+
+    async fn register_direct(
+        &self,
+        request: Request<RegisterDirectRequest>,
+    ) -> Result<Response<RegisterDirectResponse>, Status> {
+        let req = request.into_inner();
+
+        // 1. ドライバーが存在するか確認
+        let driver_row = sqlx::query("SELECT id, name FROM drivers WHERE id = ?")
+            .bind(req.driver_id)
+            .fetch_optional(self.db.pool())
+            .await
+            .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+
+        let driver = match driver_row {
+            Some(row) => row,
+            None => {
+                return Ok(Response::new(RegisterDirectResponse {
+                    success: false,
+                    message: "ドライバーIDが見つかりません".to_string(),
+                    ic_id: None,
+                    driver_id: None,
+                    driver_name: None,
+                }));
+            }
+        };
+
+        let driver_name: String = driver.get("name");
+
+        // 2. ICカードが既にic_idテーブルに登録されているか確認
+        let existing = sqlx::query("SELECT ic_id FROM ic_id WHERE ic_id = ? AND deleted = 0")
+            .bind(&req.ic_id)
+            .fetch_optional(self.db.pool())
+            .await
+            .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+
+        if existing.is_some() {
+            return Ok(Response::new(RegisterDirectResponse {
+                success: false,
+                message: "このICカードは既に登録されています".to_string(),
+                ic_id: Some(req.ic_id),
+                driver_id: None,
+                driver_name: None,
+            }));
+        }
+
+        // 3. ic_non_regedにregistered_idを設定
+        // Pythonクライアントが次回ICタッチ時に登録を完了する
+        sqlx::query(
+            r#"INSERT INTO ic_non_reged (id, registered_id, datetime, deleted)
+               VALUES (?, ?, NOW() + INTERVAL 9 HOUR, 0)
+               ON DUPLICATE KEY UPDATE
+               registered_id = VALUES(registered_id),
+               datetime = NOW() + INTERVAL 9 HOUR,
+               deleted = 0"#,
+        )
+        .bind(&req.ic_id)
+        .bind(req.driver_id)
+        .execute(self.db.pool())
+        .await
+        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+
+        Ok(Response::new(RegisterDirectResponse {
+            success: true,
+            message: "ICカード登録予約完了。次回ICタッチ時に登録されます".to_string(),
+            ic_id: Some(req.ic_id),
+            driver_id: Some(req.driver_id),
+            driver_name: Some(driver_name),
+        }))
     }
 }
