@@ -179,8 +179,13 @@ impl IcNonRegService for ICNonRegServiceImpl {
             let json_str = serde_json::to_string(&data)
                 .map_err(|e| Status::internal(format!("JSON serialization error: {}", e)))?;
 
+            // Pythonクライアントはjson.loads後にtype(data) is strでチェックするため
+            // 二重にJSONエンコードして文字列として送信する必要がある
+            let double_encoded = serde_json::to_string(&json_str)
+                .map_err(|e| Status::internal(format!("JSON serialization error: {}", e)))?;
+
             if let Some(ns) = io.of("/") {
-                if let Err(e) = ns.emit("hello", &json_str) {
+                if let Err(e) = ns.emit("hello", &double_encoded) {
                     tracing::error!("Failed to emit delete_ic event: {}", e);
                     return Ok(Response::new(DeleteIcResponse {
                         success: false,
