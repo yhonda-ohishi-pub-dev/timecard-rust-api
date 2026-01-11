@@ -67,25 +67,14 @@ impl IcNonRegService for ICNonRegServiceImpl {
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
 
-        // ic_non_regedテーブルを更新
+        // ic_non_regedテーブルを更新（deleted=0のまま、Pythonクライアントが処理後にdeleted=1にする）
         sqlx::query(
             "UPDATE ic_non_reged
-             SET deleted = 1, registered_id = ?
+             SET registered_id = ?
              WHERE id = ?",
         )
         .bind(req.driver_id)
         .bind(&req.ic_id)
-        .execute(self.db.pool())
-        .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
-
-        // ic_idテーブルに新しいエントリを追加
-        sqlx::query(
-            "INSERT INTO ic_id (ic_id, emp_id, deleted, date)
-             VALUES (?, ?, 0, NOW())",
-        )
-        .bind(&req.ic_id)
-        .bind(req.driver_id)
         .execute(self.db.pool())
         .await
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
@@ -99,10 +88,11 @@ impl IcNonRegService for ICNonRegServiceImpl {
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
 
-        // registered_idをNULLに戻す
+        // registered_idをNULLに戻し、deletedも0に戻す
+        // これにより一覧に再表示される
         sqlx::query(
             "UPDATE ic_non_reged
-             SET registered_id = NULL
+             SET registered_id = NULL, deleted = 0
              WHERE id = ?",
         )
         .bind(&req.ic_id)
