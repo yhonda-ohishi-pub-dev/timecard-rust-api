@@ -1,19 +1,31 @@
 use crate::db::Database;
 use crate::proto::timecard::{
-    ic_non_reg_service_server::IcNonRegService, CancelIcNonRegRequest, IcNonReg, IcNonRegList,
-    RegisterDirectRequest, RegisterDirectResponse, TimeRangeRequest, UpdateIcNonRegRequest,
+    ic_non_reg_service_server::IcNonRegService, CancelIcNonRegRequest, DeleteIcRequest,
+    DeleteIcResponse, IcNonReg, IcNonRegList, RegisterDirectRequest, RegisterDirectResponse,
+    TimeRangeRequest, UpdateIcNonRegRequest,
 };
 use chrono::{Duration, Local};
+use serde_json::json;
+use socketioxide::SocketIo;
 use sqlx::Row;
+use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 pub struct ICNonRegServiceImpl {
     db: Database,
+    socketio: Option<Arc<SocketIo>>,
 }
 
 impl ICNonRegServiceImpl {
     pub fn new(db: Database) -> Self {
-        Self { db }
+        Self { db, socketio: None }
+    }
+
+    pub fn with_socketio(db: Database, socketio: Arc<SocketIo>) -> Self {
+        Self {
+            db,
+            socketio: Some(socketio),
+        }
     }
 
     fn get_default_start_date() -> String {
@@ -146,6 +158,52 @@ impl IcNonRegService for ICNonRegServiceImpl {
             ic_id: Some(req.ic_id),
             driver_id: Some(req.driver_id),
             driver_name: Some(driver_name),
+        }))
+    }
+
+    async fn delete_ic(
+        &self,
+        request: Request<DeleteIcRequest>,
+    ) -> Result<Response<DeleteIcResponse>, Status> {
+        let req = request.into_inner();
+        let ic_id = req.ic_id.to_uppercase();
+
+        tracing::info!("Delete IC request received for: {}", ic_id);
+
+        // Socket.IO経由でPythonクライアントにブロードキャスト
+        if let Some(ref io) = self.socketio {
+            let data = json!({
+                "status": "delete_ic",
+                "ic": ic_id
+            });
+            let json_str = serde_json::to_string(&data)
+                .map_err(|e| Status::internal(format!("JSON serialization error: {}", e)))?;
+
+            if let Some(ns) = io.of("/") {
+                if let Err(e) = ns.emit("hello", &json_str) {
+                    tracing::error!("Failed to emit delete_ic event: {}", e);
+                    return Ok(Response::new(DeleteIcResponse {
+                        success: false,
+                        message: format!("Socket.IO emit failed: {}", e),
+                    }));
+                }
+                tracing::info!("Delete IC event broadcasted: {}", ic_id);
+            } else {
+                return Ok(Response::new(DeleteIcResponse {
+                    success: false,
+                    message: "Socket.IO namespace not found".to_string(),
+                }));
+            }
+        } else {
+            return Ok(Response::new(DeleteIcResponse {
+                success: false,
+                message: "Socket.IO not configured".to_string(),
+            }));
+        }
+
+        Ok(Response::new(DeleteIcResponse {
+            success: true,
+            message: format!("IC削除リクエストを送信しました: {}", ic_id),
         }))
     }
 }

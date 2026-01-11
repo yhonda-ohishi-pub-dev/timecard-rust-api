@@ -123,6 +123,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let broadcaster = Arc::new(broadcaster);
 
 
+    // Socket.IO サーバー初期化（設定されている場合）
+    let socketio_io = if config.socketio_server_port.is_some() {
+        let (socketio_layer, io) = socketio_server::setup_socketio(
+            database.clone(),
+            client_state.clone(),
+            config.cf_broadcast_url.clone(),
+        );
+        Some((socketio_layer, Arc::new(io)))
+    } else {
+        None
+    };
+
     // gRPC サービス初期化
     let client_service = ClientServiceImpl::new(client_state.clone());
     let driver_service = DriverServiceImpl::new(database.clone());
@@ -130,7 +142,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pic_data_service = PicDataServiceImpl::new(database.clone());
     let tmp_data_service = TmpDataServiceImpl::new(database.clone());
     let finger_log_service = FingerLogServiceImpl::new(database.clone());
-    let ic_non_reg_service = ICNonRegServiceImpl::new(database.clone());
+    let ic_non_reg_service = if let Some((_, ref io)) = socketio_io {
+        ICNonRegServiceImpl::with_socketio(database.clone(), io.clone())
+    } else {
+        ICNonRegServiceImpl::new(database.clone())
+    };
     let vapid_key_service = VapidKeyServiceImpl::new(database.clone());
     let notification_service = NotificationServiceImpl::new(database.clone(), broadcaster.clone());
     let test_service = TestServiceImpl::new(database.clone());
@@ -182,11 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Socket.IO サーバー起動（設定されている場合）
     let socketio_server = if let Some(port) = config.socketio_server_port {
         info!("Starting Socket.IO server on port {}", port);
-        let (socketio_layer, _io) = socketio_server::setup_socketio(
-            database.clone(),
-            client_state.clone(),
-            config.cf_broadcast_url.clone(),
-        );
+        let (socketio_layer, _io) = socketio_io.expect("Socket.IO already initialized");
 
         let socketio_cors = CorsLayer::new()
             .allow_origin(Any)

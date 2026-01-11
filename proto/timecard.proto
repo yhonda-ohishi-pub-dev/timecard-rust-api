@@ -201,6 +201,9 @@ service ICNonRegService {
 
   // Web NFCから直接IC登録 (ic_non_regedにregistered_idを設定)
   rpc RegisterDirect(RegisterDirectRequest) returns (RegisterDirectResponse);
+
+  // IC削除 (Socket.IO経由でPythonクライアントに通知)
+  rpc DeleteIc(DeleteIcRequest) returns (DeleteIcResponse);
 }
 
 message ICNonReg {
@@ -234,6 +237,15 @@ message RegisterDirectResponse {
   optional string ic_id = 3;
   optional int32 driver_id = 4;
   optional string driver_name = 5;
+}
+
+message DeleteIcRequest {
+  string ic_id = 1;
+}
+
+message DeleteIcResponse {
+  bool success = 1;
+  string message = 2;
 }
 
 // =============================================================================
