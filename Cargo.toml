@@ -12,7 +12,7 @@ prost = "0.13"
 prost-types = "0.13"
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"] }
 
 # Database
 sqlx = { version = "0.8", features = ["mysql", "runtime-tokio", "chrono"] }
