@@ -17,8 +17,8 @@ impl ICNonRegServiceImpl {
     }
 
     fn get_default_start_date() -> String {
-        let two_days_ago = Local::now() - Duration::days(2);
-        two_days_ago.format("%Y-%m-%d %H:%M:%S").to_string()
+        let one_hour_ago = Local::now() - Duration::hours(1);
+        one_hour_ago.format("%Y-%m-%d %H:%M:%S").to_string()
     }
 }
 
@@ -34,10 +34,14 @@ impl IcNonRegService for ICNonRegServiceImpl {
             .unwrap_or_else(Self::get_default_start_date);
 
         let rows = sqlx::query(
-            "SELECT id, datetime, deleted, registered_id
-             FROM ic_non_reged
-             WHERE datetime >= ? AND (deleted = 0 OR deleted IS NULL)
-             ORDER BY datetime DESC",
+            "SELECT n.id, n.datetime, n.deleted, n.registered_id
+             FROM ic_non_reged n
+             LEFT JOIN ic_id i ON n.id = i.ic_id
+               AND (i.deleted = 0 OR i.deleted IS NULL)
+               AND i.date >= n.datetime
+             WHERE n.datetime >= ? AND (n.deleted = 0 OR n.deleted IS NULL)
+               AND i.ic_id IS NULL
+             ORDER BY n.datetime DESC",
         )
         .bind(&start_date)
         .fetch_all(self.db.pool())
