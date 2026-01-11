@@ -109,10 +109,11 @@ impl IcLogService for ICLogServiceImpl {
             .start_date
             .unwrap_or_else(Self::get_default_start_date);
 
-        // 正しいJOIN: ic_log.id -> ic_id.ic_id -> ic_id.emp_id -> drivers.id
+        // ドライバー名取得: ic_id経由またはic_log.iid直接参照（免許証の場合）
         // 同一ICカードに複数レコードがある場合は最新のみを使用
         let rows = sqlx::query(
-            "SELECT ic.id, ic.type, ic.detail, ic.date, ic.iid, ic.machine_ip, d.name
+            "SELECT ic.id, ic.type, ic.detail, ic.date, ic.iid, ic.machine_ip,
+                    COALESCE(d1.name, d2.name) as name
              FROM ic_log ic
              LEFT JOIN (
                  SELECT i1.ic_id, i1.emp_id
@@ -125,7 +126,8 @@ impl IcLogService for ICLogServiceImpl {
                  ) i2 ON i1.ic_id = i2.ic_id AND i1.date = i2.max_date
                  WHERE i1.deleted = 0
              ) i ON ic.id = i.ic_id
-             LEFT JOIN drivers d ON i.emp_id = d.id
+             LEFT JOIN drivers d1 ON i.emp_id = d1.id
+             LEFT JOIN drivers d2 ON ic.iid = d2.id
              WHERE ic.date >= ?
              ORDER BY ic.date DESC",
         )
@@ -161,9 +163,11 @@ impl IcLogService for ICLogServiceImpl {
         let limit = req.limit.unwrap_or(100);
 
         // 最新N件をドライバー名付きで取得
+        // ドライバー名取得: ic_id経由またはic_log.iid直接参照（免許証の場合）
         // 同一ICカードに複数レコードがある場合は最新のみを使用
         let rows = sqlx::query(
-            "SELECT ic.id, ic.type, ic.detail, ic.date, ic.iid, ic.machine_ip, d.name
+            "SELECT ic.id, ic.type, ic.detail, ic.date, ic.iid, ic.machine_ip,
+                    COALESCE(d1.name, d2.name) as name
              FROM ic_log ic
              LEFT JOIN (
                  SELECT i1.ic_id, i1.emp_id
@@ -176,7 +180,8 @@ impl IcLogService for ICLogServiceImpl {
                  ) i2 ON i1.ic_id = i2.ic_id AND i1.date = i2.max_date
                  WHERE i1.deleted = 0
              ) i ON ic.id = i.ic_id
-             LEFT JOIN drivers d ON i.emp_id = d.id
+             LEFT JOIN drivers d1 ON i.emp_id = d1.id
+             LEFT JOIN drivers d2 ON ic.iid = d2.id
              ORDER BY ic.date DESC
              LIMIT ?",
         )
