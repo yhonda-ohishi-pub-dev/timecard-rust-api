@@ -3,17 +3,20 @@ FROM rust:1.88-alpine AS builder
 
 WORKDIR /app
 
-# Install build dependencies
+# Install build dependencies including mold linker
 RUN apk add --no-cache \
     musl-dev \
     protobuf-dev \
     protoc \
     pkgconfig \
     openssl-dev \
-    openssl-libs-static
+    openssl-libs-static \
+    clang \
+    mold
 
-# Copy manifests
+# Copy manifests and cargo config
 COPY Cargo.toml Cargo.lock* ./
+COPY .cargo .cargo
 
 # Create dummy main.rs for dependency caching
 RUN mkdir -p src && echo "fn main() {}" > src/main.rs
