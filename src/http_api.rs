@@ -16,7 +16,7 @@ use crate::db::Database;
 /// CakePHP互換のレスポンス形式
 #[derive(Debug, Serialize)]
 pub struct IcLogResponse {
-    pub id: Option<i32>,
+    pub id: Option<String>,
     pub datetime: String,
     pub machine_ip: String,
 }
