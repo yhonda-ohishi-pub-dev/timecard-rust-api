@@ -205,8 +205,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .allow_headers(Any)
             .allow_methods(Any);
 
+        // API routes for Socket.IO server (same port)
+        let api_routes = http_api::create_api_routes(database.clone());
+
         let socketio_router = axum::Router::new()
             .route("/health", axum::routing::get(|| async { "OK" }))
+            .merge(api_routes)
             .layer(socketio_layer)
             .layer(socketio_cors);
 

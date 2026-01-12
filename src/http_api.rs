@@ -43,6 +43,14 @@ pub fn create_router_with_db(db: Database) -> Router {
         .layer(cors)
 }
 
+/// APIルートのみを作成（Socket.IOルーターにマージ用）
+pub fn create_api_routes(db: Database) -> Router<()> {
+    Router::new()
+        .route("/api/ic_log", get(get_ic_log))
+        .route("/api/finger_log", get(get_finger_log))
+        .with_state(db)
+}
+
 async fn health_check() -> &'static str {
     "OK"
 }
