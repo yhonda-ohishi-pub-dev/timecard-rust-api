@@ -66,17 +66,24 @@ async fn get_ic_log(
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e))
     })?;
 
-    let logs: Vec<IcLogResponse> = rows
-        .iter()
-        .map(|row| {
-            let date: NaiveDateTime = row.get("date");
-            IcLogResponse {
-                id: row.get("iid"),
-                datetime: date.format("%Y-%m-%d %H:%M:%S").to_string(),
-                machine_ip: row.get("machine_ip"),
+    let mut logs: Vec<IcLogResponse> = Vec::new();
+    for row in rows {
+        let date: NaiveDateTime = match row.try_get("date") {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!("Failed to get date from ic_log row: {}", e);
+                continue;
             }
-        })
-        .collect();
+        };
+        let id: Option<String> = row.try_get("iid").ok();
+        let machine_ip: String = row.try_get("machine_ip").unwrap_or_default();
+
+        logs.push(IcLogResponse {
+            id,
+            datetime: date.format("%Y-%m-%d %H:%M:%S").to_string(),
+            machine_ip,
+        });
+    }
 
     Ok(Json(logs))
 }
@@ -100,17 +107,30 @@ async fn get_finger_log(
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e))
     })?;
 
-    let logs: Vec<FingerLogResponse> = rows
-        .iter()
-        .map(|row| {
-            let date: NaiveDateTime = row.get("date");
-            FingerLogResponse {
-                id: row.get("id"),
-                datetime: date.format("%Y-%m-%d %H:%M:%S").to_string(),
-                machine_ip: row.get("machine_ip"),
+    let mut logs: Vec<FingerLogResponse> = Vec::new();
+    for row in rows {
+        let date: NaiveDateTime = match row.try_get("date") {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!("Failed to get date from finger_log row: {}", e);
+                continue;
             }
-        })
-        .collect();
+        };
+        let id: i32 = match row.try_get("id") {
+            Ok(i) => i,
+            Err(e) => {
+                tracing::warn!("Failed to get id from finger_log row: {}", e);
+                continue;
+            }
+        };
+        let machine_ip: String = row.try_get("machine_ip").unwrap_or_default();
+
+        logs.push(FingerLogResponse {
+            id,
+            datetime: date.format("%Y-%m-%d %H:%M:%S").to_string(),
+            machine_ip,
+        });
+    }
 
     Ok(Json(logs))
 }
