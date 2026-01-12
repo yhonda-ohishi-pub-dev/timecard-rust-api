@@ -172,8 +172,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("gRPC server listening on {}", grpc_addr);
     info!("HTTP API server listening on {}", http_addr);
 
-    // HTTP API サーバー (health check only)
-    let http_router = http_api::create_router();
+    // HTTP API サーバー (health check + CakePHP互換API)
+    let http_router = http_api::create_router_with_db(database.clone());
     let http_listener = tokio::net::TcpListener::bind(&http_addr).await?;
 
     // gRPC-Web対応サーバー
