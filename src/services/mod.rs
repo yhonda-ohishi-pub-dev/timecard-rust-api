@@ -1,3 +1,4 @@
+mod card_ledger;
 mod client;
 mod driver;
 mod finger_log;
@@ -10,6 +11,7 @@ mod tmp_data;
 mod vapid_key;
 mod version;
 
+pub use card_ledger::CardLedgerServiceImpl;
 pub use client::ClientServiceImpl;
 pub use driver::DriverServiceImpl;
 pub use finger_log::FingerLogServiceImpl;

@@ -1,3 +1,4 @@
+mod card_ledger;
 mod client_state;
 mod config;
 mod db;
@@ -12,9 +13,9 @@ use client_state::ClientState;
 use config::Config;
 use db::Database;
 use services::{
-    ClientServiceImpl, DriverServiceImpl, FingerLogServiceImpl, ICLogServiceImpl,
-    ICNonRegServiceImpl, NotificationServiceImpl, PicDataServiceImpl, TestServiceImpl,
-    TmpDataServiceImpl, VapidKeyServiceImpl, VersionServiceImpl,
+    CardLedgerServiceImpl, ClientServiceImpl, DriverServiceImpl, FingerLogServiceImpl,
+    ICLogServiceImpl, ICNonRegServiceImpl, NotificationServiceImpl, PicDataServiceImpl,
+    TestServiceImpl, TmpDataServiceImpl, VapidKeyServiceImpl, VersionServiceImpl,
 };
 use tokio::sync::broadcast;
 use tonic::transport::Server;
@@ -35,6 +36,7 @@ pub mod proto {
 }
 
 use proto::timecard::{
+    card_ledger_service_server::CardLedgerServiceServer,
     client_service_server::ClientServiceServer, driver_service_server::DriverServiceServer,
     finger_log_service_server::FingerLogServiceServer, ic_log_service_server::IcLogServiceServer,
     ic_non_reg_service_server::IcNonRegServiceServer,
@@ -136,6 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // gRPC サービス初期化
+    let card_ledger_service = CardLedgerServiceImpl::new(database.clone());
     let client_service = ClientServiceImpl::new(client_state.clone());
     let driver_service = DriverServiceImpl::new(database.clone());
     let ic_log_service = ICLogServiceImpl::new(database.clone());
@@ -182,6 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(cors)
         .layer(tonic_web::GrpcWebLayer::new()) // gRPC-Webサポート
         .add_service(reflection_service)
+        .add_service(CardLedgerServiceServer::new(card_ledger_service))
         .add_service(ClientServiceServer::new(client_service))
         .add_service(DriverServiceServer::new(driver_service))
         .add_service(IcLogServiceServer::new(ic_log_service))
